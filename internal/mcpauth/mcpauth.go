@@ -793,9 +793,6 @@ func discover(ctx context.Context, serverURL string) (meta, error) {
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
-	if resp.StatusCode/100 == 2 {
-		return meta{}, ErrNoSignIn
-	}
 	metadataURL, scope := challenge(resp.Header)
 
 	var prm struct {
@@ -817,6 +814,13 @@ func discover(ctx context.Context, serverURL string) (meta, error) {
 			found = true
 			break
 		}
+	}
+	// A server that answers initialize with 2xx without a token (Google
+	// Workspace's MCP servers, which return 401 only on tools/call) still
+	// advertises its authorization server in RFC 9728 protected resource
+	// metadata; only one with none works without signing in.
+	if resp.StatusCode/100 == 2 && !found {
+		return meta{}, ErrNoSignIn
 	}
 	m := meta{Resource: serverURL, Scope: scope}
 	issuer := origin(su)

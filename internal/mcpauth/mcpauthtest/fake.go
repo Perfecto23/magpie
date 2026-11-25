@@ -65,6 +65,11 @@ type Fake struct {
 	// registration response lets it: the token endpoint takes it as
 	// registered
 	Assign string
+	// OpenInitialize lets initialize and tools/list through without a
+	// token, answering 401 only on tools/call, as Google Workspace's MCP
+	// servers do: discovery has to find the sign-in from the server's
+	// RFC 9728 protected resource metadata.
+	OpenInitialize bool
 
 	refuse  bool // RefuseTokens
 	codes   map[string]codeGrant
@@ -245,10 +250,20 @@ func New(t *testing.T) *Fake {
 }
 
 func (f *Fake) mcp(w http.ResponseWriter, r *http.Request) {
+	var msg struct {
+		ID     any    `json:"id"`
+		Method string `json:"method"`
+	}
+	body, _ := io.ReadAll(r.Body)
+	json.Unmarshal(body, &msg)
 	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	f.mu.Lock()
 	ok := f.valid[tok] && !f.refuse
+	openInit := f.OpenInitialize
 	f.mu.Unlock()
+	if !ok && openInit && r.Method == http.MethodPost && (msg.Method == "initialize" || msg.Method == "tools/list") {
+		ok = true
+	}
 	if !ok {
 		meta := f.Server.URL + "/.well-known/oauth-protected-resource/mcp"
 		if f.OpenID {
@@ -259,12 +274,6 @@ func (f *Fake) mcp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	var msg struct {
-		ID     any    `json:"id"`
-		Method string `json:"method"`
-	}
-	body, _ := io.ReadAll(r.Body)
-	json.Unmarshal(body, &msg)
 	f.mu.Lock()
 	f.Calls = append(f.Calls, r.Method+" "+msg.Method+" "+r.Header.Get("Mcp-Session-Id"))
 	f.Seen = r.Header.Clone()

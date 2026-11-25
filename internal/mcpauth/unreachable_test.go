@@ -45,6 +45,10 @@ func TestSignInAsksAgainAfterACutConnection(t *testing.T) {
 	settings.Save(settings.Settings{Proxy: "direct"})
 	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp" {
+			http.NotFound(w, r)
+			return
+		}
 		if n.Add(1) == 1 {
 			c, _, err := w.(http.Hijacker).Hijack()
 			if err == nil {

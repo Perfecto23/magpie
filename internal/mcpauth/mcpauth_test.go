@@ -472,3 +472,26 @@ func TestPastedCallbackRejectsStrangers(t *testing.T) {
 		t.Fatalf("state %s after the own address was pasted", got.State)
 	}
 }
+
+// A server that answers initialize with 200 without a token (Google
+// Workspace's MCP servers, which ask for a token only on tools/call) still
+// advertises its authorization server in RFC 9728 protected resource
+// metadata, so signing in discovers it instead of failing with ErrNoSignIn.
+func TestSignInWhenInitializeAnswers200(t *testing.T) {
+	home(t)
+	f := mcpauthtest.New(t)
+	f.OpenInitialize = true
+	f.SignIn(t, "gcal")
+	r, ok := mcpauth.Get("gcal")
+	if !ok || r.Access == "" || r.Refresh == "" || r.Resource != f.URL || r.Scope != "read write" {
+		t.Fatalf("record = %+v (ok=%v)", r, ok)
+	}
+	// a server that answers initialize with 200 and has no protected
+	// resource metadata still reports ErrNoSignIn
+	g := mcpauthtest.New(t)
+	g.OpenInitialize = true
+	g.NoMetadata = true
+	if _, err := mcpauth.Start(t.Context(), "open", g.URL); !errors.Is(err, mcpauth.ErrNoSignIn) {
+		t.Fatalf("200 without metadata: err = %v, want ErrNoSignIn", err)
+	}
+}
